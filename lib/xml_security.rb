@@ -42,12 +42,8 @@ module XMLSecurity
                        Nokogiri::XML::ParseOptions::NONET
 
     def canon_algorithm(element)
-      algorithm = element
-      if algorithm.is_a?(REXML::Element)
-        algorithm = element.attribute('Algorithm').value
-      end
-
-      case algorithm
+      case element
+        when "http://www.w3.org/2001/10/xml-exc-c14n#"         then Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
         when "http://www.w3.org/TR/2001/REC-xml-c14n-20010315" then Nokogiri::XML::XML_C14N_1_0
         when "http://www.w3.org/2006/12/xml-c14n11"            then Nokogiri::XML::XML_C14N_1_1
         else                                                        Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
@@ -257,45 +253,22 @@ module XMLSecurity
       )
       noko_sig_element = document.at_xpath('//ds:Signature', 'ds' => DSIG)
       noko_signed_info_element = noko_sig_element.at_xpath('./ds:SignedInfo', 'ds' => DSIG)
-      canon_algorithm = canon_algorithm REXML::XPath.first(
-        @sig_element,
-        '//ds:CanonicalizationMethod',
-        'ds' => DSIG
-      )
-
-      noko_signed_info_reference_element_uri_attr = noko_signed_info_element.at_xpath('./ds:Reference', 'ds' => DSIG).attributes["URI"]
-      if (noko_signed_info_reference_element_uri_attr.value.empty?)
-        noko_signed_info_reference_element_uri_attr.value = "##{document.root.attribute('ID')}"
-      end
-
-      canon_string = noko_signed_info_element.canonicalize(canon_algorithm)
+      canon_algorithm_value = canon_algorithm(REXML::XPath.first(@sig_element, '//ds:CanonicalizationMethod', 'ds' => DSIG).attribute('Algorithm').value)
+      canon_string = noko_signed_info_element.canonicalize(canon_algorithm_value)
       noko_sig_element.remove
 
       # check digests
       REXML::XPath.each(@sig_element, "//ds:Reference", {"ds"=>DSIG}) do |ref|
-        uri = ref.attributes.get_attribute("URI").value
+        uri                           = ref.attributes.get_attribute("URI").value
 
-        hashed_element = uri.empty? ? document : document.at_xpath("//*[@ID=$uri]", nil, { 'uri' => uri[1..-1] })
-        # hashed_element = document.at_xpath("//*[@ID=$uri]", nil, { 'uri' => uri[1..-1] })
-        canon_algorithm = canon_algorithm REXML::XPath.first(
-          ref,
-          '//ds:CanonicalizationMethod',
-          { "ds" => DSIG }
-        )
-        canon_hashed_element = hashed_element.canonicalize(canon_algorithm, inclusive_namespaces)
+        hashed_element                = document.at_xpath("//*[@ID='#{uri[1..-1]}']")
+        canon_algorithm_value         = canon_algorithm REXML::XPath.first(ref, '//ds:CanonicalizationMethod', 'ds' => DSIG).attribute('Algorithm').value
+        canon_hashed_element          = hashed_element.canonicalize(canon_algorithm_value, inclusive_namespaces)
 
-        digest_algorithm = algorithm(REXML::XPath.first(
-          ref,
-          "//ds:DigestMethod",
-          { "ds" => DSIG }
-        ))
-        hash = digest_algorithm.digest(canon_hashed_element)
-        encoded_digest_value = REXML::XPath.first(
-          ref,
-          "//ds:DigestValue",
-          { "ds" => DSIG }
-        ).text
-        digest_value = Base64.decode64(encoded_digest_value)
+        digest_algorithm              = algorithm(REXML::XPath.first(ref, "//ds:DigestMethod", 'ds' => DSIG))
+
+        hash                          = digest_algorithm.digest(canon_hashed_element)
+        digest_value                  = Base64.decode64(REXML::XPath.first(ref, "//ds:DigestValue", {"ds"=>DSIG}).text)
 
         unless digests_match?(hash, digest_value)
           @errors << "Digest mismatch"
@@ -346,7 +319,7 @@ module XMLSecurity
 
       return nil if reference_element.nil?
 
-      sei = reference_element.attribute("URI").value[1..-1] 
+      sei = reference_element.attribute("URI").value[1..-1]
       self.signed_element_id = sei.nil? ? self.root.attribute("ID") : sei
     end
 
