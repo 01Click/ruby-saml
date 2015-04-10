@@ -34,120 +34,98 @@ require "onelogin/ruby-saml/validation_error"
 module XMLSecurity
 
   class BaseDocument < REXML::Document
+    C14N = "http://www.w3.org/2001/10/xml-exc-c14n#"
+    DSIG = "http://www.w3.org/2000/09/xmldsig#"
 
-    C14N            = "http://www.w3.org/2001/10/xml-exc-c14n#"
-    DSIG            = "http://www.w3.org/2000/09/xmldsig#"
-
-    def canon_algorithm(element)
-      algorithm = element
-      if algorithm.is_a?(REXML::Element)
-        algorithm = element.attribute('Algorithm').value
-      end
-
-      case algorithm
-        when "http://www.w3.org/2001/10/xml-exc-c14n#"         then Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
-        when "http://www.w3.org/TR/2001/REC-xml-c14n-20010315" then Nokogiri::XML::XML_C14N_1_0
-        when "http://www.w3.org/2006/12/xml-c14n11"            then Nokogiri::XML::XML_C14N_1_1
-        else                                                        Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
+    def canonical_algorithm(element)
+      case element
+      when "http://www.w3.org/2001/10/xml-exc-c14n#"
+        Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
+      when "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+        Nokogiri::XML::XML_C14N_1_0
+      when "http://www.w3.org/2006/12/xml-c14n11"
+        Nokogiri::XML::XML_C14N_1_1
+      else
+        Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
       end
     end
 
     def algorithm(element)
-      algorithm = element
-      if algorithm.is_a?(REXML::Element)
-        algorithm = element.attribute("Algorithm").value
-      end
-
-      algorithm = algorithm && algorithm =~ /(rsa-)?sha(.*?)$/i && $2.to_i
-
-      case algorithm
-      when 256 then OpenSSL::Digest::SHA256
-      when 384 then OpenSSL::Digest::SHA384
-      when 512 then OpenSSL::Digest::SHA512
+      case element[/(?:rsa\-)?sha(.*?)$/i, 1]
+      when "256" then OpenSSL::Digest::SHA256
+      when "384" then OpenSSL::Digest::SHA384
+      when "512" then OpenSSL::Digest::SHA512
       else
         OpenSSL::Digest::SHA1
       end
     end
 
+    private
+
+    def nokogiri_document
+      @nokogiri_document ||= nokogiri_parse(self.to_s)
+    end
+
+    def nokogiri_parse(xml)
+      Nokogiri::XML(xml) { |config| config.noent.nonet }
+    end
   end
 
   class Document < BaseDocument
-    RSA_SHA1            = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
-    RSA_SHA256            = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
-    RSA_SHA384            = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
-    RSA_SHA512            = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
-    SHA1            = "http://www.w3.org/2000/09/xmldsig#sha1"
-    SHA256          = "http://www.w3.org/2001/04/xmldsig-more#sha256"
-    SHA384          = "http://www.w3.org/2001/04/xmldsig-more#sha384"
-    SHA512          = "http://www.w3.org/2001/04/xmldsig-more#sha512"
-    ENVELOPED_SIG   = "http://www.w3.org/2000/09/xmldsig#enveloped-signature"
+    RSA_SHA1 = "http://www.w3.org/2000/09/xmldsig#rsa-sha1"
+    RSA_SHA256 = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+    RSA_SHA384 = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384"
+    RSA_SHA512 = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"
+    SHA1 = "http://www.w3.org/2000/09/xmldsig#sha1"
+    SHA256 = "http://www.w3.org/2001/04/xmldsig-more#sha256"
+    SHA384 = "http://www.w3.org/2001/04/xmldsig-more#sha384"
+    SHA512 = "http://www.w3.org/2001/04/xmldsig-more#sha512"
+    ENVELOPED_SIG = "http://www.w3.org/2000/09/xmldsig#enveloped-signature"
     INC_PREFIX_LIST = "#default samlp saml ds xs xsi md"
 
-    attr_accessor :uuid
+    attr_writer :uuid
 
     def uuid
-      @uuid ||= begin
-        document.root.nil? ? nil : document.root.attributes['ID']
-      end
+      @uuid ||= nokogiri_document.root.attributes['ID']
     end
 
-    #<Signature>
-      #<SignedInfo>
-        #<CanonicalizationMethod />
-        #<SignatureMethod />
-        #<Reference>
-           #<Transforms>
-           #<DigestMethod>
-           #<DigestValue>
-        #</Reference>
-        #<Reference /> etc.
-      #</SignedInfo>
-      #<SignatureValue />
-      #<KeyInfo />
-      #<Object />
-    #</Signature>
+    # <Signature>
+    #   <SignedInfo>
+    #     <CanonicalizationMethod />
+    #     <SignatureMethod />
+    #     <Reference>
+    #        <Transforms>
+    #        <DigestMethod>
+    #        <DigestValue>
+    #     </Reference>
+    #     <Reference /> etc.
+    #   </SignedInfo>
+    #   <SignatureValue />
+    #   <KeyInfo />
+    #   <Object />
+    # </Signature>
     def sign_document(private_key, certificate, signature_method = RSA_SHA1, digest_method = SHA1)
-      noko = Nokogiri.parse(self.to_s)
+      signature_element = REXML::Element.new("ds:Signature")
+      signature_element.add_namespace("ds", DSIG)
 
-      signature_element = REXML::Element.new("ds:Signature").add_namespace('ds', DSIG)
-      signed_info_element = signature_element.add_element("ds:SignedInfo")
-      signed_info_element.add_element("ds:CanonicalizationMethod", {"Algorithm" => C14N})
-      signed_info_element.add_element("ds:SignatureMethod", {"Algorithm"=>signature_method})
-
-      # Add Reference
-      reference_element = signed_info_element.add_element("ds:Reference", {"URI" => "##{uuid}"})
-
-      # Add Transforms
-      transforms_element = reference_element.add_element("ds:Transforms")
-      transforms_element.add_element("ds:Transform", {"Algorithm" => ENVELOPED_SIG})
-      c14element = transforms_element.add_element("ds:Transform", {"Algorithm" => C14N})
-      c14element.add_element("ec:InclusiveNamespaces", {"xmlns:ec" => C14N, "PrefixList" => INC_PREFIX_LIST})
-
-      digest_method_element = reference_element.add_element("ds:DigestMethod", {"Algorithm" => digest_method})
-      inclusive_namespaces = INC_PREFIX_LIST.split(" ")
-      canon_doc = noko.canonicalize(canon_algorithm(C14N), inclusive_namespaces)
-      reference_element.add_element("ds:DigestValue").text = compute_digest(canon_doc, algorithm(digest_method_element))
+      # add SignedInfo
+      signature_element.add_element signed_info_element(
+        signature_method,
+        digest_method
+      )
 
       # add SignatureValue
-      noko_sig_element = Nokogiri.parse(signature_element.to_s)
-      noko_signed_info_element = noko_sig_element.at_xpath('//ds:Signature/ds:SignedInfo', 'ds' => DSIG)
-      canon_string = noko_signed_info_element.canonicalize(canon_algorithm(C14N))
-
-      signature = compute_signature(private_key, algorithm(signature_method).new, canon_string)
-      signature_element.add_element("ds:SignatureValue").text = signature
+      signature_element.add_element("ds:SignatureValue").text = signature_value(
+        private_key,
+        signature_method,
+        signature_element
+      )
 
       # add KeyInfo
-      key_info_element       = signature_element.add_element("ds:KeyInfo")
-      x509_element           = key_info_element.add_element("ds:X509Data")
-      x509_cert_element      = x509_element.add_element("ds:X509Certificate")
-      if certificate.is_a?(String)
-        certificate = OpenSSL::X509::Certificate.new(certificate)
-      end
-      x509_cert_element.text = Base64.encode64(certificate.to_der).gsub(/\n/, "")
+      signature_element.add_element key_info_element(certificate)
 
-      # add the signature
-      issuer_element = self.elements["//saml:Issuer"]
-      if issuer_element
+      # insert the signature
+      if issuer_element = self.elements["//saml:Issuer"]
         self.root.insert_after issuer_element, signature_element
       else
         if sp_sso_descriptor = self.elements["/md:EntityDescriptor"]
@@ -160,15 +138,71 @@ module XMLSecurity
 
     protected
 
-    def compute_signature(private_key, signature_algorithm, document)
-      Base64.encode64(private_key.sign(signature_algorithm, document)).gsub(/\n/, "")
+    def signed_info_element(signature_method, digest_method)
+      canonical_document = nokogiri_document.canonicalize(
+        canonical_algorithm(C14N),
+        INC_PREFIX_LIST.split(" ")
+      )
+      digest_value = encoded_digest(
+        canonical_document,
+        algorithm(digest_method)
+      )
+
+      builder = Nokogiri::XML::Builder.new do |xml|
+        xml["ds"].SignedInfo("xmlns:ds" => DSIG) do
+          xml.CanonicalizationMethod("Algorithm" => C14N)
+          xml.SignatureMethod("Algorithm" => signature_method)
+          xml.Reference("URI" => "##{uuid}") do
+            xml.Transforms do
+              xml.Transform("Algorithm" => ENVELOPED_SIG)
+              xml.Transform("Algorithm" => C14N) do
+                xml["ec"].InclusiveNamespaces(
+                  "xmlns:ec" => C14N,
+                  "PrefixList" => INC_PREFIX_LIST
+                )
+              end
+            end
+            xml.DigestMethod("Algorithm" => digest_method)
+            xml.DigestValue digest_value
+          end
+        end
+      end
+
+      REXML::Document.new(builder.doc.to_xml).elements["//ds:SignedInfo"]
     end
 
-    def compute_digest(document, digest_algorithm)
+    def key_info_element(certificate)
+      builder = Nokogiri::XML::Builder.new do |xml|
+        xml["ds"].KeyInfo("xmlns:ds" => DSIG) do
+          xml.X509Data do
+            xml.X509Certificate encoded_certificate(certificate)
+          end
+        end
+      end
+
+      REXML::Document.new(builder.doc.to_xml).elements["//ds:KeyInfo"]
+    end
+
+    def encoded_certificate(certificate)
+      Base64.encode64(certificate.to_der).delete("\n")
+    end
+
+    def encoded_digest(document, digest_algorithm)
       digest = digest_algorithm.digest(document)
       Base64.encode64(digest).strip!
     end
 
+    def signature_value(private_key, signature_method, signature_element)
+      signature_element = nokogiri_parse(signature_element.to_s)
+      noko_signed_info_element = signature_element.at('//ds:Signature/ds:SignedInfo', 'ds' => DSIG)
+      canonical_element = noko_signed_info_element.canonicalize(canonical_algorithm(C14N))
+
+      signature = private_key.sign(
+        algorithm(signature_method).new,
+        canonical_element
+      )
+      Base64.encode64(signature).delete("\n")
+    end
   end
 
   class SignedDocument < BaseDocument
@@ -184,7 +218,8 @@ module XMLSecurity
 
     def validate_document(idp_cert_fingerprint, soft = true, options = {})
       # get cert from response
-      cert_element = REXML::XPath.first(self, "//ds:X509Certificate", { "ds"=>DSIG })
+      cert_element = nokogiri_document.at("//ds:X509Certificate", "ds" => DSIG)
+
       unless cert_element
         if soft
           return false
@@ -213,60 +248,82 @@ module XMLSecurity
     end
 
     def validate_signature(base64_cert, soft = true)
-      # validate references
-
       # check for inclusive namespaces
       inclusive_namespaces = extract_inclusive_namespaces
 
-      document = Nokogiri.parse(self.to_s)
+      # duplicate the node because we remove the signature element below
+      document = nokogiri_document.dup
 
       # create a working copy so we don't modify the original
-      @working_copy ||= REXML::Document.new(self.to_s).root
+      working_copy = nokogiri_parse(self.to_s)
 
       # store and remove signature node
-      @sig_element ||= begin
-        element = REXML::XPath.first(@working_copy, "//ds:Signature", {"ds"=>DSIG})
-        element.remove
-      end
+      sig_element = working_copy.at("//ds:Signature", "ds" => DSIG).remove
+      signed_info_element = sig_element.at("./ds:SignedInfo", "ds" => DSIG)
 
       # verify signature
-      signed_info_element     = REXML::XPath.first(@sig_element, "//ds:SignedInfo", {"ds"=>DSIG})
-      noko_sig_element = document.at_xpath('//ds:Signature', 'ds' => DSIG)
-      noko_signed_info_element = noko_sig_element.at_xpath('./ds:SignedInfo', 'ds' => DSIG)
-      canon_algorithm = canon_algorithm REXML::XPath.first(@sig_element, '//ds:CanonicalizationMethod', 'ds' => DSIG)
-      canon_string = noko_signed_info_element.canonicalize(canon_algorithm)
-      noko_sig_element.remove
+      original_signature_element = document.at("//ds:Signature", "ds" => DSIG)
+      noko_signed_info_element = original_signature_element.at("./ds:SignedInfo", "ds" => DSIG)
+
+      algorithm_namespace = sig_element.at(
+        "./ds:SignedInfo/ds:CanonicalizationMethod",
+        "ds" => DSIG
+      )["Algorithm"]
+
+      canonical_algorithm_value = canonical_algorithm(algorithm_namespace)
+
+      canonical_string = noko_signed_info_element.canonicalize(canonical_algorithm_value)
+      original_signature_element.remove
 
       # check digests
-      REXML::XPath.each(@sig_element, "//ds:Reference", {"ds"=>DSIG}) do |ref|
-        uri                           = ref.attributes.get_attribute("URI").value
+      uri = sig_element.at(".//ds:SignedInfo/ds:Reference", "ds" => DSIG)["URI"]
+      hashed_element = document.at("//*[@ID='#{uri[1..-1]}']")
+      canonical_hashed_element = hashed_element.canonicalize(
+        canonical_algorithm_value,
+        inclusive_namespaces
+      )
 
-        hashed_element                = document.at_xpath("//*[@ID='#{uri[1..-1]}']")
-        canon_algorithm               = canon_algorithm REXML::XPath.first(ref, '//ds:CanonicalizationMethod', 'ds' => DSIG)
-        canon_hashed_element          = hashed_element.canonicalize(canon_algorithm, inclusive_namespaces)
+      digest_algorithm_method = sig_element.at(
+        "./ds:SignedInfo/ds:Reference/ds:DigestMethod",
+        "ds" => DSIG
+      )["Algorithm"]
+      digest_algorithm = algorithm(digest_algorithm_method)
+      computed_digest = digest_algorithm.digest(canonical_hashed_element)
 
-        digest_algorithm              = algorithm(REXML::XPath.first(ref, "//ds:DigestMethod", 'ds' => DSIG))
+      digest_value_text = sig_element.at(
+        "./ds:SignedInfo/ds:Reference/ds:DigestValue",
+        "ds" => DSIG
+      ).text
+      digest_value = Base64.decode64(digest_value_text)
 
-        hash                          = digest_algorithm.digest(canon_hashed_element)
-        digest_value                  = Base64.decode64(REXML::XPath.first(ref, "//ds:DigestValue", {"ds"=>DSIG}).text)
+      unless digests_match?(computed_digest, digest_value)
+        @errors << "Digest mismatch"
 
-        unless digests_match?(hash, digest_value)
-          @errors << "Digest mismatch"
-          return soft ? false : (raise OneLogin::RubySaml::ValidationError.new("Digest mismatch"))
+        if soft
+          return false
+        else
+          raise OneLogin::RubySaml::ValidationError.new("Digest mismatch")
         end
       end
 
-      base64_signature        = REXML::XPath.first(@sig_element, "//ds:SignatureValue", {"ds"=>DSIG}).text
-      signature               = Base64.decode64(base64_signature)
+      signature_value_text = sig_element.at(
+        "./ds:SignatureValue",
+        "ds" => DSIG
+      ).text
+      signature = Base64.decode64(signature_value_text)
 
       # get certificate object
-      cert_text               = Base64.decode64(base64_cert)
-      cert                    = OpenSSL::X509::Certificate.new(cert_text)
+      cert_text = Base64.decode64(base64_cert)
+      cert = OpenSSL::X509::Certificate.new(cert_text)
 
       # signature method
-      signature_algorithm     = algorithm(REXML::XPath.first(signed_info_element, "//ds:SignatureMethod", {"ds"=>DSIG}))
+      signature_method_text = sig_element.at(
+        "./ds:SignedInfo/ds:SignatureMethod",
+        "ds" => DSIG
+      )["Algorithm"]
+      signature_algorithm = algorithm(signature_method_text)
 
-      unless cert.public_key.verify(signature_algorithm.new, signature, canon_string)
+      unless cert.public_key.verify(signature_algorithm.new, signature, canonical_string)
         @errors << "Key validation error"
         return soft ? false : (raise OneLogin::RubySaml::ValidationError.new("Key validation error"))
       end
@@ -281,18 +338,14 @@ module XMLSecurity
     end
 
     def extract_signed_element_id
-      reference_element       = REXML::XPath.first(self, "//ds:Signature/ds:SignedInfo/ds:Reference", {"ds"=>DSIG})
-      self.signed_element_id  = reference_element.attribute("URI").value[1..-1] unless reference_element.nil?
-    end
-
-    def extract_inclusive_namespaces
-      if element = REXML::XPath.first(self, "//ec:InclusiveNamespaces", { "ec" => C14N })
-        prefix_list = element.attributes.get_attribute("PrefixList").value
-        prefix_list.split(" ")
-      else
-        []
+      if element = nokogiri_document.at("//ds:Reference", "ds" => DSIG)
+        self.signed_element_id = element["URI"].delete("#")
       end
     end
 
+    def extract_inclusive_namespaces
+      element = nokogiri_document.at("//ec:InclusiveNamespaces", "ec" => C14N)
+      element ? element["PrefixList"].split(" ") : []
+    end
   end
 end
