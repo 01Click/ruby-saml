@@ -56,6 +56,7 @@ module OneLogin
       # @return [String] The value (First occurrence)
       #
       def single(name)
+        logger.info "@@@@@@@ SINGLE FOR #{name} (#{canonize_name(name)})"
         attributes[canonize_name(name)].first if include?(name)
       end
 
