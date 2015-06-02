@@ -56,7 +56,13 @@ module OneLogin
       # @return [String] The value (First occurrence)
       #
       def single(name)
-        attributes[canonize_name(name)].first if include?(name)
+        if include?(name)
+          if attributes[canonize_name(name)].respond_to?(:first)
+            attributes[canonize_name(name)].first
+          else
+            attributes[canonize_name(name)]
+          end
+        end
       end
 
       # Return all values for an attribute
