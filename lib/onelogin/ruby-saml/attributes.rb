@@ -1,7 +1,7 @@
 module OneLogin
   module RubySaml
 
-    # SAML2 Attributes. Parse the Attributes from the AttributeStatement of the SAML Response. 
+    # SAML2 Attributes. Parse the Attributes from the AttributeStatement of the SAML Response.
     #
     class Attributes
       include Enumerable
@@ -43,14 +43,14 @@ module OneLogin
         attributes.each{|name, values| yield name, values}
       end
 
-      
+
       # Test attribute presence by name
       # @param name [String] The attribute name to be checked
       #
       def include?(name)
         attributes.has_key?(canonize_name(name))
       end
-      
+
       # Return first value for an attribute
       # @param name [String] The attribute name
       # @return [String] The value (First occurrence)
