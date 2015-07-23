@@ -60,12 +60,12 @@ module OneLogin
       # @param document [REXML::Document] The message that will be validated
       # @param soft [Boolean] soft Enable or Disable the soft mode (In order to raise exceptions when the message is invalid or not)
       # @return [Boolean] True if the XML is valid, otherwise False, if soft=True
-      # @raise [ValidationError] if soft == false and validation fails 
+      # @raise [ValidationError] if soft == false and validation fails
       #
       def valid_saml?(document, soft = true)
         begin
-          xml = Nokogiri::XML(document.to_s) do |config|
-            config.options = XMLSecurity::BaseDocument::NOKOGIRI_OPTIONS
+          xml = Nokogiri.XML(document.to_s) do |config|
+            config.noent.nonet.strict
           end
         rescue Exception => error
           return false if soft

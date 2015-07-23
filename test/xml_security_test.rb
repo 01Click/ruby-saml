@@ -82,23 +82,23 @@ class XmlSecurityTest < Minitest::Test
   describe "#canon_algorithm" do
     it "C14N_EXCLUSIVE_1_0" do
       canon_algorithm = Nokogiri::XML::XML_C14N_EXCLUSIVE_1_0
-      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canon_algorithm("http://www.w3.org/2001/10/xml-exc-c14n#")
-      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canon_algorithm("http://www.w3.org/2001/10/xml-exc-c14n#WithComments")
-      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canon_algorithm("other")
+      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canonical_algorithm("http://www.w3.org/2001/10/xml-exc-c14n#")
+      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canonical_algorithm("http://www.w3.org/2001/10/xml-exc-c14n#WithComments")
+      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canonical_algorithm("other")
     end
 
     it "C14N_1_0" do
       canon_algorithm = Nokogiri::XML::XML_C14N_1_0
-      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canon_algorithm("http://www.w3.org/TR/2001/REC-xml-c14n-20010315")
+      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canonical_algorithm("http://www.w3.org/TR/2001/REC-xml-c14n-20010315")
     end
 
     it "XML_C14N_1_1" do
       canon_algorithm = Nokogiri::XML::XML_C14N_1_1
-      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canon_algorithm("http://www.w3.org/2006/12/xml-c14n11")
+      assert_equal canon_algorithm, XMLSecurity::BaseDocument.new.canonical_algorithm("http://www.w3.org/2006/12/xml-c14n11")
     end
   end
 
-  describe "#algorithm" do    
+  describe "#algorithm" do
     it "SHA1" do
       alg = OpenSSL::Digest::SHA1
       assert_equal alg, XMLSecurity::BaseDocument.new.algorithm("http://www.w3.org/2000/09/xmldsig#rsa-sha1")
@@ -122,7 +122,7 @@ class XmlSecurityTest < Minitest::Test
       alg = OpenSSL::Digest::SHA512
       assert_equal alg, XMLSecurity::BaseDocument.new.algorithm("http://www.w3.org/2001/04/xmldsig-more#rsa-sha512")
       assert_equal alg, XMLSecurity::BaseDocument.new.algorithm("http://www.w3.org/2001/04/xmldsig-more#sha512")
-    end        
+    end
   end
 
   describe "Fingerprint Algorithms" do
@@ -227,6 +227,8 @@ class XmlSecurityTest < Minitest::Test
     end
 
     describe "XMLSecurity::DSIG" do
+      let(:settings) { OneLogin::RubySaml::Settings.new }
+
       before do
         settings.idp_sso_target_url = "https://idp.example.com/sso"
         settings.protocol_binding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
@@ -234,7 +236,7 @@ class XmlSecurityTest < Minitest::Test
         settings.issuer = "https://sp.example.com/saml2"
         settings.assertion_consumer_service_url = "https://sp.example.com/acs"
         settings.single_logout_service_url = "https://sp.example.com/sls"
-      end 
+      end
 
 
       it "sign an AuthNRequest" do
@@ -271,7 +273,7 @@ class XmlSecurityTest < Minitest::Test
         logout_request2.sign_document(ruby_saml_key, ruby_saml_cert_text)
         # verify our signature
         signed_doc2 = XMLSecurity::SignedDocument.new(logout_request2.to_s)
-        signed_doc2.validate_document(ruby_saml_cert_fingerprint, false)        
+        signed_doc2.validate_document(ruby_saml_cert_fingerprint, false)
         assert signed_doc2.validate_document(ruby_saml_cert_fingerprint, false)
       end
 
@@ -286,16 +288,20 @@ class XmlSecurityTest < Minitest::Test
         logout_response2.sign_document(ruby_saml_key, ruby_saml_cert_text)
         # verify our signature
         signed_doc2 = XMLSecurity::SignedDocument.new(logout_response2.to_s)
-        signed_doc2.validate_document(ruby_saml_cert_fingerprint, false)        
+        signed_doc2.validate_document(ruby_saml_cert_fingerprint, false)
         assert signed_doc2.validate_document(ruby_saml_cert_fingerprint, false)
       end
     end
 
     describe "StarfieldTMS" do
-      let (:response) { OneLogin::RubySaml::Response.new(fixture(:starfield_response)) }
+      let (:response) do
+        OneLogin::RubySaml::Response.new(fixture(:starfield_response))
+      end
 
       before do
-        response.settings = OneLogin::RubySaml::Settings.new( :idp_cert_fingerprint => "8D:BA:53:8E:A3:B6:F9:F1:69:6C:BB:D9:D8:BD:41:B3:AC:4F:9D:4D")
+        response.settings = OneLogin::RubySaml::Settings.new(
+          idp_cert_fingerprint: "8D:BA:53:8E:A3:B6:F9:F1:69:6C:BB:D9:D8:BD:41:B3:AC:4F:9D:4D"
+        )
       end
 
       it "be able to validate a good response" do
