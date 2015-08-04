@@ -284,7 +284,7 @@ module XMLSecurity
 
       # check digests
       uri = sig_element.at(".//ds:SignedInfo/ds:Reference", "ds" => DSIG)["URI"]
-      hashed_element = document.at("//*[@ID='#{uri[1..-1]}']")
+      hashed_element = uri.empty? ? document : document.at("//*[@ID='#{uri[1..-1]}']")
       canonical_hashed_element = hashed_element.canonicalize(
         canonical_algorithm_value,
         inclusive_namespaces
@@ -346,6 +346,7 @@ module XMLSecurity
 
     def extract_signed_element_id
       if element = nokogiri_document.at("//ds:Reference", "ds" => DSIG)
+        element["URI"] = "##{self.root.attribute("ID")}" if element["URI"].empty?
         self.signed_element_id = element["URI"].delete("#")
       end
     end
